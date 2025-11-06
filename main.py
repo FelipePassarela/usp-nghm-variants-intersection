@@ -1,3 +1,5 @@
+"""Show genotypes frequencies from a VCF file."""
+
 import argparse
 from pathlib import Path
 
