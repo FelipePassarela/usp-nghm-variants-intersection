@@ -1,5 +1,4 @@
 import argparse
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -8,72 +7,84 @@ import pysam
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Find intersection of variants from VCF coming from USP and selected features from CSV."
+        description="Show genotypes frequencies from a VCF file."
     )
     parser.add_argument("vcf_path", type=Path, help="Path to the VCF file.")
-    parser.add_argument("csv_path", type=Path, help="Path to the CSV file.")
+    parser.add_argument(
+        "--output", "-o", type=Path, help="Output CSV file for genotype frequencies."
+    )
 
     args = parser.parse_args()
     vcf_path = args.vcf_path
-    csv_path = args.csv_path
+    output_path = args.output
 
-    usp_df = usp_variants(vcf_path)
+    df_genotypes = genotypes_matrix(vcf_path)
+    df_frequencies = genotype_frequencies(df_genotypes)
 
-    estimator_df = estimator_variants(csv_path, n_features=20)
-    intersected_df = pd.merge(
-        estimator_df,
-        usp_df,
-        how="inner",
-        left_on=["CHROM", "POS"],
-        right_on=["CHROM", "POS"],
-    )
-    intersected_df = intersected_df[["CHROM", "POS"]].reset_index(drop=True)
-
-    print("Intersected Variants:")
-    print(intersected_df)
+    if output_path:
+        df_frequencies.to_csv(output_path)
+        print(f"✅ Genotype frequencies saved to {output_path}")
+    else:
+        print(df_frequencies)
 
 
-def usp_variants(vcf_path: Path) -> pd.DataFrame:
-    vcf = pysam.VariantFile(vcf_path)
-    vcf_df = pd.DataFrame(columns=["CHROM", "POS"])
+def genotypes_matrix(vcf_path: Path) -> pd.DataFrame:
+    """Read VCF and return a DataFrame with samples as rows and variants as columns.
 
-    count = 0
+    Create a DataFrame containing the genotypes for each sample (rows) and each variant (columns).
+    Genotypes are represented as strings (i.e., "0/0", "0/1", "1/1", "./.").
+
+    Args:
+        vcf_path (Path): Path to the VCF file.
+
+    Returns:
+        pd.DataFrame: DataFrame with samples as rows and variants as columns.
+    """
+    vcf = pysam.VariantFile(str(vcf_path))
+    samples = list(vcf.header.samples)
+    data = {s: [] for s in samples}
+    variant_ids = []
+
     for rec in vcf.fetch():
-        vcf_df.loc[count] = [rec.chrom, rec.pos]
-        count += 1
-    return vcf_df
+        vid = f"{rec.chrom}_{rec.pos}"
+        variant_ids.append(vid)
+        for s in samples:
+            sample = rec.samples[s]
+            gt = sample.get("GT")
+
+            if gt is None:
+                gstr = "./."
+            else:
+                phased = getattr(sample, "phased", False)
+                sep = "|" if phased else "/"
+                # None alleles as '.'
+                gstr = sep.join("." if a is None else str(a) for a in gt)
+            data[s].append(gstr)
+
+    df = pd.DataFrame(data, index=variant_ids).T
+    df.index.name = "sample"
+    df.columns.name = "variant"
+    return df
 
 
-def estimator_variants(csv_path: Path, n_features: int = 20) -> pd.DataFrame:
+def genotype_frequencies(df: pd.DataFrame) -> pd.DataFrame:
+    """Genotype frequencies for each variant.
+
+    Given a DataFrame with samples as rows and variants as columns,
+    return a DataFrame with variants as rows and genotype frequencies as columns.
+
+    Args:
+        df (pd.DataFrame): DataFrame with samples as rows and variants as columns.
+
+    Returns:
+        pd.DataFrame: DataFrame with variants as rows and genotype frequencies as columns.
     """
-    Read the CSV, find the row with n_features == n_features,
-    and extract the variants listed in `selected_features`.
-    Returns DataFrame with columns: CHROM, POS (POS as int).
-    """
-    df = pd.read_csv(csv_path, dtype=str)
-
-    if "n_features" not in df.columns:
-        raise KeyError("Column 'n_features' not found in CSV.")
-    mask = pd.to_numeric(df["n_features"], errors="coerce") == int(n_features)
-
-    if not mask.any():
-        return pd.DataFrame(columns=["CHROM", "POS"])
-
-    row = df.loc[mask].iloc[0]
-    sel = row.get("selected_features", "") or ""
-
-    # regex to capture tokens like 'chr14_23967207'
-    matches = re.findall(r"(chr[^'\",\]\s]+?_\d+)", str(sel))
-
-    records = []
-    for m in matches:
-        try:
-            chrom, pos = m.split("_", 1)
-            records.append({"CHROM": chrom, "POS": int(pos)})
-        except Exception:
-            continue
-
-    return pd.DataFrame(records)
+    counts = df.apply(pd.Series.value_counts).fillna(0).astype(int).T
+    totals = counts.sum(axis=1)
+    freqs = counts.div(totals, axis=0)
+    freqs = freqs.reindex(columns=["0/0", "0/1", "1/1", "./."], level=0)
+    freqs.columns.name = "genotype"
+    return freqs
 
 
 if __name__ == "__main__":
