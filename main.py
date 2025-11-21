@@ -154,8 +154,11 @@ def genotype_frequencies(df: pd.DataFrame) -> pd.DataFrame:
     counts = df.apply(pd.Series.value_counts).fillna(0).astype(int).T
     totals = counts.sum(axis=1)
     freqs = counts.div(totals, axis=0)
+
+    # Sort columns according to typical genotype order: hom ref > het > hom alt > missing
     freqs = freqs.reindex(columns=["0/0", "0/1", "1/1", "./."], level=0)
     freqs.columns.name = "genotype"
+
     return freqs
 
 
