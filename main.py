@@ -9,6 +9,16 @@ import pysam
 
 
 def main():
+    """
+    Main entry point for computing genotype frequencies from a VCF file for one or more cohorts.
+
+    This function implements a command-line interface that:
+    - Parses required and optional command-line arguments.
+    - Loads cohort definitions from one or more CSV files.
+    - For each cohort, extracts the genotype matrix for the cohort samples from the provided VCF,
+        computes genotype frequencies, and either writes the results to CSV files in an output directory
+        or prints them to stdout.
+    """
     parser = argparse.ArgumentParser(
         description="Show genotypes frequencies from a VCF file."
     )
