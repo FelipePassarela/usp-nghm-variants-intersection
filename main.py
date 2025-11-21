@@ -62,7 +62,10 @@ def get_cohort_ids(cohorts_path: list[Path]) -> pd.DataFrame:
         ValueError: If no matching columns are found in a cohort.
     """
 
-    cohorts = [pd.read_csv(path, sep=None, engine="python", header=None) for path in cohorts_path]
+    cohorts = [
+        pd.read_csv(path, sep=None, engine="python", header=None)
+        for path in cohorts_path
+    ]
     max_len = max(len(cohort) for cohort in cohorts)
 
     for i, cohort in enumerate(cohorts):
